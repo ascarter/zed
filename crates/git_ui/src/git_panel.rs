@@ -7,7 +7,7 @@ use db::kvp::KEY_VALUE_STORE;
 use editor::Editor;
 use git::{
     diff::DiffHunk,
-    repository::{GitFileStatus, RepoPath},
+    repository::{GitFileStatus, GitRepository, RepoPath},
 };
 use gpui::*;
 use language::Buffer;
@@ -68,8 +68,9 @@ pub enum ViewMode {
 
 pub struct GitStatusEntry {}
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 struct EntryDetails {
+    git_repository: Option<Arc<dyn GitRepository>>,
     filename: String,
     display_name: String,
     path: RepoPath,
@@ -115,6 +116,7 @@ pub struct GitPanel {
 #[derive(Debug, Clone)]
 struct WorktreeEntries {
     worktree_id: WorktreeId,
+    git_repository: Option<Arc<dyn GitRepository>>,
     // TODO support multiple repositories per worktree
     // work_directory: worktree::WorkDirectory,
     visible_entries: Vec<GitPanelEntry>,
@@ -337,6 +339,10 @@ impl GitPanel {
         }))
     }
 
+    // TODO kb When commit we commit what is in staging area
+    // check: git add ${FILE}
+    // uncheck: git reset HEAD ${FILE}
+    // git commit ${CHECKMARKED_FILES} -m "sdasdsadasd"
     fn handle_modifiers_changed(
         &mut self,
         event: &ModifiersChangedEvent,
@@ -570,6 +576,7 @@ impl GitPanel {
 
                     let details = EntryDetails {
                         filename,
+                        git_repository: worktree_entries.git_repository.clone(),
                         display_name: entry.repo_path.to_string_lossy().into_owned(),
                         // TODO get it from StatusEntry?
                         kind: EntryKind::File,
@@ -622,38 +629,45 @@ impl GitPanel {
                 continue;
             }
 
-            let mut visible_worktree_entries = Vec::new();
-            // Only use the first repository for now
-            let repositories = snapshot.repositories().take(1);
+            let repositories = snapshot.repositories();
+            // TODO handle multiple repositories in the workspace
             // let mut work_directory = None;
+
             for repository in repositories {
-                visible_worktree_entries.extend(repository.status());
+                let mut status_entries = Vec::new();
+                status_entries.extend(repository.status());
                 // work_directory = Some(worktree::WorkDirectory::clone(repository));
-            }
 
-            // TODO use the GitTraversal
-            // let mut visible_worktree_entries = snapshot
-            //     .entries(false, 0)
-            //     .filter(|entry| !entry.is_external)
-            //     .filter(|entry| entry.git_status.is_some())
-            //     .cloned()
-            //     .collect::<Vec<_>>();
-            // snapshot.propagate_git_statuses(&mut visible_worktree_entries);
-            // project::sort_worktree_entries(&mut visible_worktree_entries);
+                // TODO use the GitTraversal
+                // let mut visible_worktree_entries = snapshot
+                //     .entries(false, 0)
+                //     .filter(|entry| !entry.is_external)
+                //     .filter(|entry| entry.git_status.is_some())
+                //     .cloned()
+                //     .collect::<Vec<_>>();
+                // snapshot.propagate_git_statuses(&mut visible_worktree_entries);
+                // project::sort_worktree_entries(&mut visible_worktree_entries);
+                let git_repository = worktree
+                    .read(cx)
+                    .as_local()
+                    .and_then(|local_repo| Some(local_repo.get_local_repo(repository)?.repo()))
+                    .cloned();
 
-            if !visible_worktree_entries.is_empty() {
-                self.visible_entries.push(WorktreeEntries {
-                    worktree_id,
-                    // work_directory: work_directory.unwrap(),
-                    visible_entries: visible_worktree_entries
-                        .into_iter()
-                        .map(|entry| GitPanelEntry {
-                            entry,
-                            hunks: Rc::default(),
-                        })
-                        .collect(),
-                    paths: Rc::default(),
-                });
+                if !status_entries.is_empty() {
+                    self.visible_entries.push(WorktreeEntries {
+                        worktree_id,
+                        git_repository,
+                        // work_directory: work_directory.unwrap(),
+                        visible_entries: status_entries
+                            .into_iter()
+                            .map(|entry| GitPanelEntry {
+                                entry,
+                                hunks: Rc::default(),
+                            })
+                            .collect(),
+                        paths: Rc::default(),
+                    });
+                }
             }
         }
         self.visible_entries.extend(after_update);
@@ -1105,7 +1119,6 @@ impl GitPanel {
     ) -> impl IntoElement {
         let view_mode = self.view_mode.clone();
         let checkbox_id = ElementId::Name(format!("checkbox_{}", ix).into());
-        let is_staged = ToggleState::Selected;
         let handle = cx.view().downgrade();
 
         // TODO: At this point, an entry should really have a status.
@@ -1150,8 +1163,37 @@ impl GitPanel {
             entry = entry.bg(cx.theme().status().info_background);
         }
 
+        let git_repo = details.git_repository.clone();
+        let path = details.path.clone();
+        let toggle_state = match details.status {
+            None => ToggleState::Unselected,
+            Some(GitFileStatus::Conflict) => ToggleState::Indeterminate,
+            Some(GitFileStatus::Modified | GitFileStatus::Deleted | GitFileStatus::Untracked) => {
+                ToggleState::Unselected
+            }
+            Some(GitFileStatus::Added) => ToggleState::Selected,
+        };
+        dbg!((toggle_state, details.status, &path));
         entry = entry
-            .child(Checkbox::new(checkbox_id, is_staged))
+            .child(
+                Checkbox::new(checkbox_id, toggle_state).on_click(move |state, cx| {
+                    let Some(git_repo) = git_repo.clone() else {
+                        return;
+                    };
+                    let path = path.clone();
+
+                    match state {
+                        ToggleState::Indeterminate | ToggleState::Unselected => cx
+                            .background_executor()
+                            .spawn(async move { git_repo.unstage_entry(&path) })
+                            .detach_and_log_err(cx),
+                        ToggleState::Selected => cx
+                            .background_executor()
+                            .spawn(async move { git_repo.stage_entry(&path) })
+                            .detach_and_log_err(cx),
+                    }
+                }),
+            )
             .child(git_status_icon(status))
             .child(
                 h_flex()

@@ -1,6 +1,6 @@
 use crate::GitHostingProviderRegistry;
 use crate::{blame::Blame, status::GitStatus};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use collections::{HashMap, HashSet};
 use git2::BranchType;
 use gpui::SharedString;
@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use rope::Rope;
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
+use std::process::Stdio;
 use std::sync::LazyLock;
 use std::{
     cmp::Ordering,
@@ -51,6 +52,10 @@ pub trait GitRepository: Send + Sync {
 
     /// Returns the path to the repository, typically the `.git` folder.
     fn dot_git_dir(&self) -> PathBuf;
+
+    // TODO kb docs
+    fn stage_entry(&self, path: &RepoPath) -> Result<()>;
+    fn unstage_entry(&self, path: &RepoPath) -> Result<()>;
 }
 
 impl std::fmt::Debug for dyn GitRepository {
@@ -152,7 +157,7 @@ impl GitRepository for RealGitRepository {
             Ok(_) => Ok(true),
             Err(e) => match e.code() {
                 git2::ErrorCode::NotFound => Ok(false),
-                _ => Err(anyhow::anyhow!(e)),
+                _ => Err(anyhow!(e)),
             },
         }
     }
@@ -196,7 +201,7 @@ impl GitRepository for RealGitRepository {
         repo.set_head(
             revision
                 .name()
-                .ok_or_else(|| anyhow::anyhow!("Branch name could not be retrieved"))?,
+                .ok_or_else(|| anyhow!("Branch name could not be retrieved"))?,
         )?;
         Ok(())
     }
@@ -227,6 +232,69 @@ impl GitRepository for RealGitRepository {
             remote_url,
             self.hosting_provider_registry.clone(),
         )
+    }
+
+    fn stage_entry(&self, path: &RepoPath) -> Result<()> {
+        let working_directory = self
+            .repository
+            .lock()
+            .workdir()
+            .with_context(|| format!("failed to get git working directory for file {:?}", path))?
+            .to_path_buf();
+
+        let child = util::command::new_std_command(self.git_binary_path.clone())
+            .current_dir(working_directory)
+            .arg("add")
+            .arg("--")
+            .arg(path.as_os_str())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| anyhow!("Failed to start git add process: {e}"))?;
+
+        let output = child
+            .wait_with_output()
+            .map_err(|e| anyhow!("Failed to read git blame output: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("git add failed: {stderr}"));
+        }
+
+        Ok(())
+    }
+
+    fn unstage_entry(&self, path: &RepoPath) -> Result<()> {
+        let working_directory = self
+            .repository
+            .lock()
+            .workdir()
+            .with_context(|| format!("failed to get git working directory for file {:?}", path))?
+            .to_path_buf();
+
+        let child = util::command::new_std_command(&self.git_binary_path)
+            .current_dir(working_directory)
+            .arg("reset")
+            .arg("HEAD")
+            .arg("--")
+            .arg(path.as_os_str())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| anyhow!("Failed to start git reset process: {e}"))?;
+
+        let output = child
+            .wait_with_output()
+            .map_err(|e| anyhow!("Failed to read git reset output: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow!("git add failed: {stderr}"));
+        }
+
+        Ok(())
     }
 }
 
@@ -362,6 +430,14 @@ impl GitRepository for FakeGitRepository {
             .get(path)
             .with_context(|| format!("failed to get blame for {:?}", path))
             .cloned()
+    }
+
+    fn stage_entry(&self, _path: &RepoPath) -> Result<()> {
+        unimplemented!()
+    }
+
+    fn unstage_entry(&self, _path: &RepoPath) -> Result<()> {
+        unimplemented!()
     }
 }
 
