@@ -1,6 +1,6 @@
 use crate::{settings_store::parse_json_with_comments, SettingsAssets};
 use anyhow::{anyhow, Context, Result};
-use collections::BTreeMap;
+use collections::IndexMap;
 use gpui::{Action, AppContext, KeyBinding, SharedString};
 use schemars::{
     gen::{SchemaGenerator, SchemaSettings},
@@ -21,7 +21,9 @@ pub struct KeymapBlock {
     context: Option<String>,
     #[serde(default)]
     use_key_equivalents: Option<bool>,
-    bindings: BTreeMap<String, KeymapAction>,
+    /// A map of key bindings to actions. IndexMap is used to maintain the order of bindings, since
+    /// earlier bindings of the same action are preferred when choosing a binding to display.
+    bindings: IndexMap<String, KeymapAction>,
 }
 
 impl KeymapBlock {
@@ -29,7 +31,7 @@ impl KeymapBlock {
         self.context.as_deref()
     }
 
-    pub fn bindings(&self) -> &BTreeMap<String, KeymapAction> {
+    pub fn bindings(&self) -> &IndexMap<String, KeymapAction> {
         &self.bindings
     }
 }
@@ -78,14 +80,20 @@ impl KeymapFile {
     pub fn add_to_cx(self, cx: &mut AppContext) -> Result<()> {
         let key_equivalents = crate::key_equivalents::get_key_equivalents(&cx.keyboard_layout());
 
+        // Reverse the order of blocks so that earlier bindings for the same action are preferred.
+        let reversed_blocks = self.0.iter().rev()
+
         for KeymapBlock {
             context,
             use_key_equivalents,
             bindings,
-        } in self.0
+        } in reversed_blocks
         {
             let bindings = bindings
                 .into_iter()
+                // Reverse the order of bindings so that earlier for the same action bindings are
+                // preferred.
+                .rev()
                 .filter_map(|(keystroke, action)| {
                     let action = action.0;
 
