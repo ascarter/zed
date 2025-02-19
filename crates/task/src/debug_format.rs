@@ -67,6 +67,8 @@ pub enum DebugAdapterKind {
     Python(TCPHost),
     /// Use vscode-php-debug
     Php(TCPHost),
+    /// Use rdbg
+    Ruby(TCPHost),
     /// Use vscode-js-debug
     Javascript(TCPHost),
     /// Use delve
@@ -88,6 +90,7 @@ impl DebugAdapterKind {
             Self::Custom(_) => "Custom",
             Self::Python(_) => "Python",
             Self::Php(_) => "PHP",
+            Self::Ruby(_) => "Ruby",
             Self::Javascript(_) => "JavaScript",
             Self::Lldb => "LLDB",
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

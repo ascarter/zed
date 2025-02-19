@@ -28,5 +28,12 @@
     "initialize_args": {
       "console": "integratedTerminal"
     }
+  },
+  {
+    "label": "Debug active Ruby file",
+    "adapter": "ruby",
+    "program": "$ZED_FILE",
+    "request": "launch",
+    "cwd": "$ZED_WORKTREE_ROOT"
   }
 ]

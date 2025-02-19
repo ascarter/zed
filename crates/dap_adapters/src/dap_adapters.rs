@@ -6,6 +6,7 @@ mod javascript;
 mod lldb;
 mod php;
 mod python;
+mod ruby;
 
 use std::sync::Arc;
 
@@ -23,6 +24,7 @@ use javascript::JsDebugAdapter;
 use lldb::LldbDebugAdapter;
 use php::PhpDebugAdapter;
 use python::PythonDebugAdapter;
+use ruby::RubyDebugAdapter;
 use serde_json::{json, Value};
 use task::{CustomArgs, DebugAdapterConfig, DebugAdapterKind, DebugConnectionType, TCPHost};
 
@@ -33,6 +35,7 @@ pub async fn build_adapter(kind: &DebugAdapterKind) -> Result<Arc<dyn DebugAdapt
         }
         DebugAdapterKind::Python(host) => Ok(Arc::new(PythonDebugAdapter::new(host).await?)),
         DebugAdapterKind::Php(host) => Ok(Arc::new(PhpDebugAdapter::new(host.clone()).await?)),
+        DebugAdapterKind::Ruby(host) => Ok(Arc::new(RubyDebugAdapter::new(host.clone()).await?)),
         DebugAdapterKind::Javascript(host) => {
             Ok(Arc::new(JsDebugAdapter::new(host.clone()).await?))
         }

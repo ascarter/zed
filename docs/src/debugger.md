@@ -22,6 +22,8 @@ Zed supports a variety of debug adapters for different programming languages:
 
 - PHP (xdebug): Provides debugging and profiling capabilities for PHP applications, including remote debugging and code coverage analysis.
 
+- Ruby (rdbg): Provides debugging capabilities for Ruby applications, supporting features like remote debugging, multi-threaded debugging, and Rails application debugging.
+
 - Custom: Allows you to configure any debug adapter that supports the Debug Adapter Protocol, enabling debugging for additional languages or specialized environments not natively supported by Zed.
 
 These adapters enable Zed to provide a consistent debugging experience across multiple languages while leveraging the specific features and capabilities of each debugger.
@@ -150,6 +152,22 @@ This configuration allows you to debug a Python file in your project.
   "label": "Python: Debug Active File",
   "adapter": "python",
   "program": "$ZED_FILE",
+  "request": "launch",
+  "cwd": "$ZED_WORKTREE_ROOT"
+}
+```
+
+#### Ruby Configuration
+
+##### Debug Active File
+
+This configuration allows you to debug a Ruby file in your project.
+
+```json
+{
+  "label": "Ruby: Debug Active File",
+  "adapter": "ruby",
+  "program": "ruby $ZED_FILE",
   "request": "launch",
   "cwd": "$ZED_WORKTREE_ROOT"
 }

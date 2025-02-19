@@ -602,11 +602,15 @@ impl TcpTransport {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
+        log::debug!("Spawning command: {:?}", command);
+
         let mut process = command
             .spawn()
             .with_context(|| "failed to start debug adapter.")?;
 
         let address = SocketAddrV4::new(host, port);
+
+        log::debug!("Connecting to TCP DAP server {}:{}...", host, port);
 
         let timeout = connection_args.timeout.unwrap_or_else(|| {
             cx.update(|cx| DebuggerSettings::get_global(cx).timeout)
